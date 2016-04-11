@@ -1,0 +1,184 @@
+TCPINC IETF-95 Session Minutes
+Buenos Aires, April 2016
+
+draft-ietf-tcpinc-tcpeno-01 (David Mazières)
+===========================================
+
+Application-aware aa=10
+-----------------------
+
+(On slide 6)
+David reserved aa code point in case the application becomes aware in a new way
+Jana: Why "do not send, interpret as 01"?
+David: Easier to do it this way. Only combination not allowed is 11 at one end and 00 at the other.
+Ekr: How is 10 actually going to work in practice? The fact that you can't rely on the other side acknowledging the 10, you don't know if you're agreeing on what "10" means.
+David: That means TCP inteprets it that way. The application interprets it however it wants.
+Jana: You're using these to negotiate at the application layer?
+David: So apps that don't have room to negotiate in their protocols can use this to bootstrap crypto
+dkg: Three states we can have in AA. We don't know what it means yet, but maybe we can send it.
+Ekr: Since you have to send three messages, why not just have one bit, and have the mandatory quality be part of the negotiation. You have a third leg. The active opener can refuse there.
+David: Hard to make that work with SO. Maybe we can take that offline?
+Ekr: "Don't send but accept" are unknown semantics. I don't like that. Maybe we can get a bit back.
+Proposal to try to hammer this out later
+
+Criticality bit
+---------------
+
+(On slide 7)
+Ekr: Is it useful to have a criticality bit?
+Ekr: Burn a bit, and if it's set, say if you don't understand the option, choke.
+Paul Wouters: We did this in IPSEC, turned out not to be great.
+David: We'll follow this up on the list
+
+
+draft-bittau-tcpinc-api-01 (David Mazières)
+==========================================
+
+Encryption spec expressiveness
+------------------------------
+
+Ekr (slide 5): looks to me like encryption specs works well if negotiation happens completely in ENO, less well if you have application negotiation as well. Can you expose more info here?
+David: Not currently. Good suggestion.
+Ekr: You opted to demarshal stuff. But the other way to do it is "here is a blob, handle it yourself", that'd be another way to handle specs: chunk of bytes must be interpreted in context.
+David: Don't see why we need to 
+Ekr: Generic spec blob API makes it easier to build a generic interface.
+[FIXME: the below needs further clarification]
+David: I think what you want to add is a spec-specific message, and we can do that
+Ekr: I want it to go up, not down
+David: Read only? Two options, GET_TCP_AUX vs GET_TLS_AUX, these are 32 bit numbers, doesn't make sense to confirm.
+Ekr: We have a different opinion of software engineering aesthetics
+
+Socket option proliferation
+---------------------------
+
+Tom Herbert: A long list of socket options will not make implementors happy. Compressing configuration down to a few things is generally better. Socket options are not designed for open ended config. Both FreeBSD and Linux have proposals for TLS in the kernel, which is a different socket type. Some of those options would overlap with these
+David: Why would you want to reuse those hooks?
+Tom: It's different, here you're just trying to configure the option.
+David: There are options like preventing session caching for tcpcrypt. 
+Tom: Configuring the socket is one thing. Configuring the security mechanism is another thing. Be nice if they were rectified. If the information overlaps, should use it for the same config.
+David: GET_SPEC_SPECIFIC_AUX_DATA (RO)?
+Mirja: Isn't this an abstract API? Here we talk about the signaling interface. SO_whatever is an implementation detail.
+Tom: We want a generic way to set TCP options outside the protocol. You're actually saying something about the payload. If we could classify these options as being like that, then the application can set whatever opt it wants. 
+David: What is the suggestion?
+Tom: Look at work we've done in integrating TLS, see if there is overlap
+David: For TCP_USE_TLS yes, but for ENO, a role bit... [FIXME]
+Tom: Can we consolidate these together? Long list of sockopts makes me nervous. Too many format-specific options means ABI changes in the future. To extend protocol, you need to change the kernel. You don't want to change the ABI every time you change something in userspace. 
+David: I think you're talking about raw mode. 
+Tom: My point is that if the application is setting this, then the application has to do this (in raw mode)
+Jana: Ah, yes I see there are two modes.
+dkg: If you have too many options, we can collapse some of these like Local Name. Second question. Why do have this -1 system default for ENABLED but not for specs?
+David: Specs is a list of bytes, but we can massage it to use the default. You might want to read it
+dkg: Or reset it? 
+David: Yes. Let's take this to the list. 
+
+Call for API document adoption
+------------------------------
+
+Kyle: I'd like to get a show of hands to adopt for the ENO milestone: in favor (8-10), opposed (none). 
+Mirja: We will confirm on the list.
+
+
+Negotiation of Userspace TLS using TCP-ENO (Eric Rescorla)
+==========================================================
+
+Code point reservation
+----------------------
+
+Andrea: Does it make sense in ENO to have two code points reserved for use by TLS?
+Ekr: Nope. We need a mechanism for allocating code points. 
+Andrea: For the initial registry, since it seems almost certain TLS will want one?
+Ekr: Nope, we just need a draft that will create the IANA registry. Expect to write that eventually.
+Ekr: We want to use 1.3 only for TCPINC, but maybe ENO to negotiate an arbitrary/unspecified version of TLS by the application. That would be the reason for two code points.
+
+draft-ietf-tcpinc-tcpcrypt-01 (Andrea Bittau)
+=============================================
+
+Boot-time entropy
+-----------------
+
+[FIXME: who?]: Wait for randomness
+[FIXME: who?]: Is this not an implementation detail?
+Ekr: I think so, you'll burn energy on this. Spec / best practices should say wait.
+Tom: We need randomness for ISNs (initial sequence numbers). If you bring up TCP before you have it, you have other problems
+
+Session resumption
+------------------
+
+Ekr: What happens if I have the wrong ciphersuite before session ID?
+Andrea: Right, server needs to cache ciphersuite used previously
+Ekr: You basically have to lie, you say, this is ECDHE, you mean 
+Andrea: Being specific about "hey I resumed a session" might be the right thing to do 
+Ekr: The app wants to know ...[FIXME: lost]... it wants to know the original source of key exchange, flight is a different... less literal view of what's happening on the wire and [FIXME]
+Andrea: Keep the lie, and different API
+Ekr: Resumption cipher mismatch causes fail
+David: Renegotiation. If the session doesn't match you just start negotiation
+Ekr: What I mean is implementation error doesn't cause fail. If you take this literal view, you might report the wrong thing because you didn't check for comparison
+David: Session ID, you need more checking anyway. Full session ID includes cipher spec. 
+Ekr: You don't know the alg to finish the job, you need the [FIXME: unintelligible]. It's more aesthetic to have the session ID ...[FIXME]... I like 0x20.
+Andrea: It's got to be explicit to the app that the session was resumed. Let's not lose that bit.
+
+Privacy
+-------
+
+Christian Huitema: Is sticking the session ID in the SYN when you resume creating a tracking channel. I move from the wifi here to the wifi at the bar, and now both networks know who I am.
+Andrea: You can't calculate the next session ID as an observer
+dkg: What happens if someone tries to resume the same session twice?
+David: A session id is only valid once; trying it again, it will be treated like garbage. Do we need something in the draft that says that?
+Jana: I think the draft is clear. A MUST can't hurt you, but I think it is clear.
+
+TCP URG/FIN bits
+----------------
+
+Jana: Tcpcrypt says that it should ignore FIN if FINB is not set--do we have to update the TCP specs?
+Mirja: I think I have to check RFC 793 to make sure, but I'll call this a task for the new chairs.
+
+Implementation
+--------------
+
+Andrea: Effort shifting from draft to implementation. We have a signed windows implementation, signed OS X, and Linux (Debian etc.). User space implementations really paid off in getting this done; a kernel implementation is next.
+Reviewing the black magic that we had to do.
+How do we modify the handhsake? How do we TLV data? Those are the big issues.
+PCAP hack is reviewed, then TLV data.
+Packet flow overview is reviewed.
+The firewall rules for Mac and Linux are super complicated as a result of this.
+Brian Trammell: please, please put this in the kernel--I admire this, it's really cool, but it's an awesome hack, and an excellent time to put it in the kernel.
+Andrea: Now the protcol is not changing, so it is now time. The user-space paid off until today, but now the focus is getting this right. What's next? More people to edit draft? Call for implementations. Start a new, clean implementation. Specifically write a kernel implementation (FreeBSD or Linux). What's the process for getting implementations for Microsoft and Apple?
+Jana: Is there any hope? I'd like to hear more.
+Andrea: Microsoft engineer likes it. Looking for applications to convince management. We're talking to Apple people after this meeting.
+
+[FIXME: who?] There is another TCP option (MPTCP) that has started from the other end-kernel from the beginning. Talk to them about how that goes.
+[FIXME: who?]: How do TCPCRYPT and MPTCP layer? Do the subflows get encrypted?
+Andrea: We need to do a better job looking at how this interoperates with multipath or TCP Fast Open. We have definitely talked to MPTCP people in the past.
+
+Jana: it's important to think about TCP Fast Open and other options and how they will interact. Needs to be specified in the ENO document. Can we actually get the SYN options with MPTCP and CRYPT together. Cristoph says no
+David: Option is 3 bytes so yes. Session resumption is 12. 
+Cristoph: Depends on MPTCP's direction. We are trying to reduce the number of bytes in the SYN segment
+Jana: Of course timestamps are out.
+David: Depends on what you're doing.
+Jana: Useful to know numbers, looking at ENO it's hard to compute. Quite useful to know how many bytes of SYN options will be gone if I use ENO. 
+David: We have minimized use of option space, and we have jumped through hoops to squeeze out some bytes. 3 bytes is the minimum, if you have one ciphers, some of the additional specs have data (e.g. session resumption).
+Jana: When you have fast open, you might get more? Some options can go into data. At the moment, we might need to say that it does not use TCP FO. Perhaps it could another draft?
+
+Privacy (cont'd)
+----------------
+
+David: Tradeoff between forward secrecy and session resumption. If you want caching and affinity, that comes at the cost of privacy. Not sure what the right answer is.
+Ekr: We resolved this in TLS, server supplies client with token for resumption. Have a one-week key window that rotates every hour.
+
+Mirja (mic line, individual): We say we don't want to encrypt the header. Maybe there is a benefit in encrypting some or all of the *options*
+
+Server farms
+------------
+
+Christoph: In MPTCP we did not consider large server farms and load balancers. We should make sure that this protocol avoids that problem. Andrea: you might have to terminate tcpcrypt at the load balancer.
+Jana: I want to thank Cristoph for raising server farms. That's important. Not so much about FO, FO also suffers from multiple IPs with the same name problem
+Andrea: Only a resumption problem
+Jana: Yes.
+Andrea: Same source to same server.
+David: Affinity solves that. You might not want it though.
+
+
+Closing comments
+================
+
+Mirja (as chair): Looking at milestones, timeline is aggressive, these two drafts are stable. There will be revisions for both documents. Goal is to submit them to IESG in July, depending on authors. Be notified that there might be a WGLC *before* Berlin.
